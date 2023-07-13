@@ -119,6 +119,9 @@ room-<unique room ID>: {
 				optionally with a fmtp attribute to match (codec/fmtp properties).
 				If not provided, all codecs enabled in the room are offered, with no fmtp.
 				Notice that the fmtp is parsed, and only a few codecs are supported.
+	simulcast_order = highlow|lowhigh (whether simulcast layers are specified in high->low or
+				low->high quality order, used when selecting substreams, including fallback when
+				substreams stop receiving data; default=highlow)
 }
 \endverbatim
  *
@@ -1627,7 +1630,8 @@ static struct janus_json_parameter create_parameters[] = {
 	{"notify_joining", JANUS_JSON_BOOL, 0},
 	{"require_e2ee", JANUS_JSON_BOOL, 0},
 	{"dummy_publisher", JANUS_JSON_BOOL, 0},
-	{"dummy_streams", JANUS_JSON_ARRAY, 0}
+	{"dummy_streams", JANUS_JSON_ARRAY, 0},
+	{"simulcast_order", JANUS_JSON_STRING, 0}
 };
 static struct janus_json_parameter edit_parameters[] = {
 	{"secret", JSON_STRING, 0},
@@ -2011,6 +2015,7 @@ typedef struct janus_videoroom {
 	gboolean signed_tokens;		/* Whether signed tokens are required (assuming they're enabled in the core)  */
 	gboolean require_e2ee;		/* Whether end-to-end encrypted publishers are required */
 	gboolean dummy_publisher;	/* Whether this room has a dummy publisher to use for placeholder subscriptions */
+	janus_simulcast_order simulcast_order; /* The order of simulcast layers expected when doing RID-based simulcasting */
 	int max_publishers;			/* Maximum number of concurrent publishers */
 	uint32_t bitrate;			/* Global bitrate limit */
 	gboolean bitrate_cap;		/* Whether the above limit is insormountable */
@@ -3196,6 +3201,34 @@ static json_t *janus_videoroom_subscriber_offer(janus_videoroom_subscriber *subs
 	return jsep;
 }
 
+static janus_simulcast_order janus_videoroom_default_simulcast_order(void) {
+	return JANUS_SIMULCAST_ORDER_HIGHLOW;
+}
+
+static const char* janus_videoroom_simulcast_order_string(janus_simulcast_order order) {
+	if(order == JANUS_SIMULCAST_ORDER_HIGHLOW)
+		return "highlow";
+	else
+		return "lowhigh";
+}
+
+static janus_simulcast_order janus_videoroom_parse_simulcast_order(const char* order_string) {
+	janus_simulcast_order default_order = janus_videoroom_default_simulcast_order();
+	if(order_string == NULL)
+		return default_order;
+	else if(strcmp(order_string, "highlow") == 0)
+		return JANUS_SIMULCAST_ORDER_HIGHLOW;
+	else if(strcmp(order_string, "lowhigh") == 0)
+		return JANUS_SIMULCAST_ORDER_LOWHIGH;
+	else {
+		JANUS_LOG(
+			LOG_WARN,
+			"Invalid simulcast_order value provided, using default of %s\n",
+			janus_videoroom_simulcast_order_string(default_order));
+		return default_order;
+	}
+}
+
 
 /* Plugin implementation */
 int janus_videoroom_init(janus_callbacks *callback, const char *config_path) {
@@ -3291,6 +3324,7 @@ int janus_videoroom_init(janus_callbacks *callback, const char *config_path) {
 			janus_config_item *req_e2ee = janus_config_get(config, cat, janus_config_type_item, "require_e2ee");
 			janus_config_item *dummy_pub = janus_config_get(config, cat, janus_config_type_item, "dummy_publisher");
 			janus_config_item *dummy_str = janus_config_get(config, cat, janus_config_type_array, "dummy_streams");
+			janus_config_item *simulcast_order = janus_config_get(config, cat, janus_config_type_item, "simulcast_order");
 			janus_config_item *record = janus_config_get(config, cat, janus_config_type_item, "record");
 			janus_config_item *rec_dir = janus_config_get(config, cat, janus_config_type_item, "rec_dir");
 			janus_config_item *lock_record = janus_config_get(config, cat, janus_config_type_item, "lock_record");
@@ -3544,6 +3578,9 @@ int janus_videoroom_init(janus_callbacks *callback, const char *config_path) {
 				if(dummy_streams != NULL)
 					g_hash_table_destroy(dummy_streams);
 			}
+			videoroom->simulcast_order = janus_videoroom_default_simulcast_order();
+			if(simulcast_order)
+				videoroom->simulcast_order = janus_videoroom_parse_simulcast_order(simulcast_order->value);
 			janus_mutex_lock(&rooms_mutex);
 			g_hash_table_insert(rooms,
 				string_ids ? (gpointer)g_strdup(videoroom->room_id_str) : (gpointer)janus_uint64_dup(videoroom->room_id),
@@ -4302,6 +4339,7 @@ static json_t *janus_videoroom_process_synchronous_request(janus_videoroom_sessi
 		json_t *audiolevel_event = json_object_get(root, "audiolevel_event");
 		json_t *audio_active_packets = json_object_get(root, "audio_active_packets");
 		json_t *audio_level_average = json_object_get(root, "audio_level_average");
+		json_t *simulcast_order = json_object_get(root, "simulcast_order");
 		json_t *videoorient_ext = json_object_get(root, "videoorient_ext");
 		json_t *playoutdelay_ext = json_object_get(root, "playoutdelay_ext");
 		json_t *transport_wide_cc_ext = json_object_get(root, "transport_wide_cc_ext");
@@ -4549,6 +4587,8 @@ static json_t *janus_videoroom_process_synchronous_request(janus_videoroom_sessi
 		if(lock_record) {
 			videoroom->lock_record = json_is_true(lock_record);
 		}
+		videoroom->simulcast_order = janus_videoroom_parse_simulcast_order(json_string_value(simulcast_order));
+
 		g_atomic_int_set(&videoroom->destroyed, 0);
 		janus_mutex_init(&videoroom->mutex);
 		janus_refcount_init(&videoroom->ref, janus_videoroom_room_free);
@@ -4641,6 +4681,7 @@ static json_t *janus_videoroom_process_synchronous_request(janus_videoroom_sessi
 				janus_config_add(config, c, janus_config_item_create("require_e2ee", "yes"));
 			if(videoroom->dummy_publisher)
 				janus_config_add(config, c, janus_config_item_create("dummy_publisher", "yes"));
+			janus_config_add(config, c, janus_config_item_create("simulcast_order", janus_videoroom_simulcast_order_string(videoroom->simulcast_order)));
 			g_snprintf(value, BUFSIZ, "%"SCNu32, videoroom->bitrate);
 			janus_config_add(config, c, janus_config_item_create("bitrate", value));
 			if(videoroom->bitrate_cap)
@@ -4834,6 +4875,7 @@ static json_t *janus_videoroom_process_synchronous_request(janus_videoroom_sessi
 				janus_config_add(config, c, janus_config_item_create("require_e2ee", "yes"));
 			if(videoroom->dummy_publisher)
 				janus_config_add(config, c, janus_config_item_create("dummy_publisher", "yes"));
+			janus_config_add(config, c, janus_config_item_create("simulcast_order", janus_videoroom_simulcast_order_string(videoroom->simulcast_order)));
 			g_snprintf(value, BUFSIZ, "%"SCNu32, videoroom->bitrate);
 			janus_config_add(config, c, janus_config_item_create("bitrate", value));
 			if(videoroom->bitrate_cap)
@@ -5050,6 +5092,7 @@ static json_t *janus_videoroom_process_synchronous_request(janus_videoroom_sessi
 				json_object_set_new(rl, "require_pvtid", room->require_pvtid ? json_true() : json_false());
 				json_object_set_new(rl, "require_e2ee", room->require_e2ee ? json_true() : json_false());
 				json_object_set_new(rl, "dummy_publisher", room->dummy_publisher ? json_true() : json_false());
+				json_object_set_new(rl, "simulcast_order", json_string(janus_videoroom_simulcast_order_string(room->simulcast_order)));
 				json_object_set_new(rl, "notify_joining", room->notify_joining ? json_true() : json_false());
 				char audio_codecs[100];
 				char video_codecs[100];
@@ -11818,7 +11861,8 @@ static void *janus_videoroom_handler(void *data) {
 									janus_rtp_simulcasting_cleanup(&ps->rid_extmap_id, NULL, ps->rid, NULL);
 									janus_rtp_simulcasting_prepare(s,
 										&ps->rid_extmap_id,
-										ps->vssrc, ps->rid);
+										ps->vssrc, ps->rid,
+										videoroom->simulcast_order);
 									janus_mutex_unlock(&ps->rid_mutex);
 								}
 							} else if(msg_svc != NULL && json_array_size(msg_svc) > 0 &&

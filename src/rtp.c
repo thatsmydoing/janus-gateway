@@ -1030,7 +1030,7 @@ void janus_rtp_simulcasting_context_reset(janus_rtp_simulcasting_context *contex
 	context->templayer = -1;
 }
 
-void janus_rtp_simulcasting_prepare(json_t *simulcast, int *rid_ext_id, uint32_t *ssrcs, char **rids) {
+void janus_rtp_simulcasting_prepare(json_t *simulcast, int *rid_ext_id, uint32_t *ssrcs, char **rids, janus_simulcast_order layer_order) {
 	if(simulcast == NULL)
 		return;
 	json_t *r = json_object_get(simulcast, "rids");
@@ -1039,10 +1039,18 @@ void janus_rtp_simulcasting_prepare(json_t *simulcast, int *rid_ext_id, uint32_t
 		JANUS_LOG(LOG_VERB, "  -- Simulcasting is rid based\n");
 		size_t i = 0;
 		int count = json_array_size(r);
+		gboolean reverse_order = layer_order == JANUS_SIMULCAST_ORDER_HIGHLOW;
 		for(i=count; i > 0; i--) {
 			json_t *rid = json_array_get(r, i-1);
-			if(rid && json_is_string(rid) && rids)
-				rids[count-i] = g_strdup(json_string_value(rid));
+			if(rid && json_is_string(rid) && rids) {
+				int rid_index = reverse_order ? count-i : i-1;
+				const char* new_rid = json_string_value(rid);
+				char* old_rid = rids[rid_index];
+				if (!old_rid || strcmp(new_rid, old_rid) != 0) {
+					g_free(old_rid);
+					rids[rid_index] = g_strdup(new_rid);
+				}
+			}
 		}
 		json_t *rid_ext = json_object_get(simulcast, "rid-ext");
 		if(rid_ext_id != NULL)

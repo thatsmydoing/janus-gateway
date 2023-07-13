@@ -1920,7 +1920,8 @@ struct janus_plugin_result *janus_lua_handle_message(janus_plugin_session *handl
 				janus_rtp_simulcasting_cleanup(&session->rid_extmap_id, NULL, session->rid, NULL);
 				janus_rtp_simulcasting_prepare(s,
 					&session->rid_extmap_id,
-					session->ssrc, session->rid);
+					session->ssrc, session->rid,
+					JANUS_SIMULCAST_ORDER_HIGHLOW);
 				janus_mutex_unlock(&session->rid_mutex);
 				/* FIXME We're stopping at the first item, there may be more */
 				break;

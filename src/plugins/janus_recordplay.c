@@ -1874,7 +1874,7 @@ recdone:
 					janus_mutex_lock(&session->rid_mutex);
 					/* Clear existing RIDs in case this is a renegotiation */
 					janus_rtp_simulcasting_cleanup(NULL, NULL, session->rid, NULL);
-					janus_rtp_simulcasting_prepare(s, &rid_ext_id, session->ssrc, session->rid);
+					janus_rtp_simulcasting_prepare(s, &rid_ext_id, session->ssrc, session->rid, JANUS_SIMULCAST_ORDER_HIGHLOW);
 					session->sim_context.rid_ext_id = rid_ext_id;
 					janus_mutex_unlock(&session->rid_mutex);
 					session->sim_context.substream_target = 2;	/* Let's aim for the highest quality */

@@ -126,6 +126,12 @@ const char *janus_videocodec_name(janus_videocodec vcodec);
 janus_videocodec janus_videocodec_from_name(const char *name);
 int janus_videocodec_pt(janus_videocodec vcodec);
 
+/*! \brief The order of send encodings in RID-based simulcasting, as given to an RTCPeerConnection.addTransceiver() call
+ * @note "High" and "low" refer to the encoding quality of the simulcast layer. */
+typedef enum janus_simulcast_order {
+	JANUS_SIMULCAST_ORDER_HIGHLOW, // High-to-low
+	JANUS_SIMULCAST_ORDER_LOWHIGH, // Low-to-high
+} janus_simulcast_order;
 
 /*! \brief Helper method to demultiplex RTP from other protocols
  * @param[in] buf Buffer to inspect
@@ -331,8 +337,9 @@ void janus_rtp_simulcasting_context_reset(janus_rtp_simulcasting_context *contex
  * @param[in] simulcast JSON object containing SSRCs and rids
  * @param[in] rid_ext_id The rid RTP extension ID to set, if any
  * @param[in] ssrcs The list of simulcast SSRCs to update, if any
- * @param[in] rids The list of rids to update, if any (items will be allocated) */
-void janus_rtp_simulcasting_prepare(json_t *simulcast, int *rid_ext_id, uint32_t *ssrcs, char **rids);
+ * @param[in] rids The list of rids to update, if any (items will be allocated)
+ * @param[in] layer_order Expected ordering of simulcast layers, for mapping RIDs with substreams */
+void janus_rtp_simulcasting_prepare(json_t *simulcast, int *rid_ext_id, uint32_t *ssrcs, char **rids, janus_simulcast_order layer_order);
 
 /*! \brief Helper method to cleanup some or all of the simulcasting info
  * (rids and/or SSRCs) we may have prepared before via janus_rtp_simulcasting_prepare

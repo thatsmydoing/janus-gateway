@@ -10470,10 +10470,10 @@ static void *janus_videoroom_handler(void *data) {
 										list = list->next;
 										continue;
 									}
-									janus_videoroom_subscriber_stream_remove(stream, ps, TRUE);
 									if(stream->type != JANUS_VIDEOROOM_MEDIA_DATA)
 										changes++;
 									list = list->next;
+									janus_videoroom_subscriber_stream_remove(stream, ps, TRUE);
 								}
 								temp = temp->next;
 							}

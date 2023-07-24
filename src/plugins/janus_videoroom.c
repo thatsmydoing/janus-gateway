@@ -8633,8 +8633,8 @@ static void janus_videoroom_hangup_media_internal(gpointer session_data) {
 					}
 					list = list->next;
 				}
-				janus_videoroom_subscriber_stream_remove(s, NULL, TRUE);
 				temp = temp->next;
+				janus_videoroom_subscriber_stream_remove(s, NULL, TRUE);
 			}
 			/* Free streams */
 			g_list_free(subscriber->streams);
